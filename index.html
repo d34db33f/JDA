@@ -1,0 +1,409 @@
+<!doctype html>
+<html>
+<head>
+<title>JDA</title>
+<script type="text/javascript" src="jquery-2.1.3.js"></script>
+<script type="text/javascript" src="jquery.binarytransport.js"></script>
+<script type="text/javascript" src="jquery.scrollTo.js"></script>
+<script type="text/javascript" src="w2ui-1.4.2.js"></script>
+<script type="text/javascript" src="keypress.js"></script>
+<script type="text/javascript" src="jda.utils.js"></script>
+<script type="text/javascript" src="jda.PECOFF32Binary.js"></script>
+<script type="text/javascript">
+//<!--
+"use strict";
+var appstate={};
+//todo: implement file open in browser
+appstate.filename="proj0000.exe";
+appstate.binary=null;
+appstate.rawfile=null;
+appstate.instructions=[];
+appstate.tabs={ left:"functions", main:"asm" }
+$(document).ready(function() {
+	conlog("Initializing JDA");
+	conlog("Initializing UI display");
+	//Initialize UI
+	var pstyle = 'background-color: #F5F6F7; border: 1px solid #dfdfdf; padding: 5px;';
+	$('#jdawin').w2layout({
+		name: 'layout',
+		panels: [
+			{ type: 'top',  size: 50, resizable: true, style: pstyle, content: 'top' },
+			{ type: 'left', size: 200, resizable: true, style: pstyle, tabs: {
+				active: "functions",
+				tabs: [
+					{ id: "functions", caption: "Functions" },
+					{ id: "labels", caption: "Labels" },
+				],
+				onClick:function(e) {
+					console.log(e);
+					appstate.tabs.left=e.target;
+				}
+			}},
+			{ type: 'main', style: pstyle, tabs: {
+				active: "asm",
+				tabs: [
+					{ id: "asm", caption: "ASM View" },
+					{ id: "raw", caption: "Hex View" },
+					{ id: "sections", caption: "Sections" },
+					{ id: "imports", caption: "Imports" },
+					{ id: "exports", caption: "Exports" },
+				],
+				onClick:function(e) {
+					$("#layout_layout_panel_main .w2ui-panel-content .window").hide();
+					$("#"+e.target).show();
+					$("td[id^=tb_layout_main_toolbar_item_]").hide();
+					$("#tb_layout_main_toolbar_item_break0").show();
+					$("td[id^=tb_layout_main_toolbar_item_"+e.target+"]").show();
+					appstate.tabs.main=e.target;
+				},
+			},toolbar: {
+					items:[
+						{ type: 'break', id: 'break0' },
+						{ type: "html", id: "raw_option_width_container", html: $("#content-toolbar-raw-width").html() },
+						{ type: 'break', id: 'raw_break1' },
+						{ type: "html", id: "raw_option_encoding_container", html: $("#content-toolbar-raw-encoding").html() }
+					]
+				}
+			},
+			//{ type: 'preview', size: '50%', resizable: true, style: pstyle, content: 'preview' },
+			{ type: 'right', size: 200, resizable: true, style: pstyle, content: 'right' },
+			{ type: 'bottom', size: 200, resizable: true, style: pstyle, title: 'Console' }
+		]
+	});
+	$("#console").detach().appendTo($("#layout_layout_panel_bottom .w2ui-panel-content"));
+	$("#asm").detach().appendTo($("#layout_layout_panel_main .w2ui-panel-content"));
+	$("#raw").detach().appendTo($("#layout_layout_panel_main .w2ui-panel-content"));
+	$("#sections").detach().appendTo($("#layout_layout_panel_main .w2ui-panel-content"));
+	$("#imports").detach().appendTo($("#layout_layout_panel_main .w2ui-panel-content"));
+	$("#exports").detach().appendTo($("#layout_layout_panel_main .w2ui-panel-content"));
+	$(".w2ui-tab.active").click();
+	
+	conlog("Initializing keyboard hotkeys");
+	Window.jda_listener = new window.keypress.Listener();
+	Window.jda_listener.simple_combo("g",function() {
+		conlog("g pressed");
+	});
+	getBinary(appstate.filename);	
+});
+//memory region
+function MemoryRegion(base,size) {
+	//this.
+}
+function Instruction(va,fa,raw,mnemonic,comment) {
+	this.va=va;
+	this.fa=fa;
+	this.raw=raw;
+	this.mnemonic=mnemonic;
+	this.comment=comment;
+}
+//Load a binary into JDA
+function loadFile(ab) {
+	//Todo: implement support for fileformat detector and iteration
+	appstate.rawfile=ab;
+	appstate.binary=new PECOFF32Binary(ab);
+	console.log(appstate.binary);
+	
+	//The following processes may take a long time, we don't want to lock up
+	//the page for too long and the user has to know what's going on
+	setTimeout(function() {
+		conlog("Loading binary view");
+		$("#raw_option_width").change();
+	},100);
+	setTimeout(function() {
+		conlog("Loading section view");
+		showSectionView();
+	},100);
+	setTimeout(function() {
+		conlog("Loading exports view");
+		showExportsView();
+	},100);
+	setTimeout(function() {
+		conlog("Loading imports view");
+		showImportsView();
+	},100);
+	setTimeout(function() {
+		conlog("Begin disassembly");
+		disassembleBinaryInitial();
+		setTimeout(function() {
+			conlog("Loading ASM view");
+			showAsmView();
+		},100);
+	},100);
+}
+//function Instruction(va,fa,raw,mnemonic,comment) {
+//Turn all bytes in the binary into db instructions
+//Shit hell, this is inefficient. 
+function disassembleBinaryInitial() {
+	appstate.instructions=[];
+	appstate.binary.sections.forEach(function(e,k) {
+		var v=new Uint8Array(e.buffer);
+		if(e.vsize==-1) { //file-only data, not mapped into memory
+		} else {
+			appstate.instructions.push(new Instruction(e.va,e.fa,"","SECTION "+e.name," VSIZE "+toHex(e.vsize,4)+", FSIZE "+toHex(e.fsize,4)));
+			for(var i=0;i<e.fsize;i++)
+				appstate.instructions.push(new Instruction(e.va+i,e.fa+i,toHex(v[i],1),"    db 0x"+toHex(v[i],1),""));
+			if(e.vsize==e.fsize) {
+				appstate.instructions.push(new Instruction(e.va+e.vsize,e.fa+e.fsize,"","ENDSECTION "+e.name,""));	
+			} else if(e.vsize > e.fsize) {
+				for(var i=e.fsize;i<e.vsize;i++)
+					appstate.instructions.push(new Instruction(e.va+i,"","","    db ?"));
+			} else {
+				if(e.vsize!=-1)
+					throw "PE file error: section "+k+" bigger in file ("+toHex(e.fsize,4)+") than in memory ("+toHex(e.vsize,4)+")";
+			}
+		}
+	});
+}
+//<tr><th title="Virtual address">VA</th><th title="File address">FA</th><th title="Raw bytes in file/memory">RAW</th><th title="ASM representation">Mnemonic</th><th>Notes/Comment</th></tr>
+function showAsmView() {
+	var $container=$("#asm_content tbody").empty();
+	appstate.instructions.forEach(function(e) {
+		var $row=$("<tr>").appendTo($container);
+		if(e.va>0)
+			$row.attr("id","asm_byte"+e.va);
+		$("<td>").html(toHex((e.va>0)?e.va:0,4)).appendTo($row);
+		$("<td>").html(toHex((e.fa>0)?e.fa:0,4)).appendTo($row);
+		$("<td>").html(e.raw).appendTo($row);
+		$("<td>").html(e.mnemonic).appendTo($row);
+		$("<td>").html(e.comment).appendTo($row);
+	});
+}
+function showExportsView() {
+	var $container=$("#exports_content tbody").empty();
+	appstate.binary.exports.forEach(function(e) {
+		var $row=$("<tr>").appendTo($container);
+		$("<td>").appendTo($row).html(e.ordinal);
+		$("<td>").appendTo($row).html(pad(e.rva.toString(16),8,"0"));
+		$("<td>").appendTo($row).html(e.name);
+	});
+}
+
+function showImportsView() {
+	var $container=$("#imports_content tbody").empty();
+	appstate.binary.imports.forEach(function(e) {
+		e.imports.forEach(function(e2) {
+			var $row=$("<tr>").appendTo($container);
+			$("<td>").appendTo($row).html(e.name);
+			$("<td>").appendTo($row).html(pad(e2.hint.toString(16),4,"0"));
+			$("<td>").appendTo($row).html(e2.name);
+			$("<td>").appendTo($row).html(pad(e2.rva.toString(16),8,"0"));
+		});
+	});
+}
+function showSectionView() {
+	var $container=$("#sections_content tbody").empty();
+	appstate.binary.sections.forEach(function(e,i) {
+		var $row=$("<tr>").appendTo($container);
+		$("<td>").appendTo($row).html(i);
+		$("<td>").appendTo($row).html(e.name);
+		$("<td>").appendTo($row).html((e.type==1)?"physical":"virtual");
+		$("<td>").appendTo($row).html((e.type==1)?(pad(e.va.toString(16),8,"0")):"&nbsp;");
+		$("<td>").appendTo($row).html(pad(e.fa.toString(16),8,"0"));
+		$("<td>").appendTo($row).html((e.type==1)?(pad(e.vsize.toString(16),8,"0")):"&nbsp;");
+		$("<td>").appendTo($row).html(pad(e.fsize.toString(16),8,"0"));
+		$("<td>").appendTo($row);
+		$("<td>").appendTo($row).html(e.comment);
+		var $actioncol=$("<td>").appendTo($row);
+		$("<button>").html("Highlight in raw").click(function() {
+			$(".raw_byte_highlight").removeClass("raw_byte_highlight");
+			for(var i=e.fa;i<e.fa+e.fsize;i++)
+				$(".raw_byte"+i).addClass("raw_byte_highlight");
+				
+			var displaywidth=$("#raw_option_width").val();
+			var targetPos=e.fa-displaywidth*2; //provide two lines of unhighlighted context after scrolling
+			if(targetPos<0) targetPos=0;
+			conlog("scrolling to "+targetPos);
+			$("#tabs_layout_main_tabs_tab_raw .w2ui-tab").click();
+			$("#raw").scrollTo($(".raw_byte"+targetPos)[0]);
+		}).appendTo($actioncol);
+	});
+}
+$(document).ready(function() {
+	$("#raw_option_width").change(function() {
+		var $area=$("#raw_content tbody").empty();
+		var ab=appstate.rawfile;
+		if(ab==null)
+			return;
+		var a=new Uint8Array(ab);
+		var displaywidth=$("#raw_option_width").val();
+		var currentByte=0;
+		var $row=null;
+		var $offsetcol=null;
+		var $hexcol=null;
+		var $textcol=null;
+		//For some reason it is faster to use individual rows instead of one huge table cell
+		//Maybe giant cells kill chrome's renderer?
+		for(var i=0;i<ab.byteLength;i++) {
+			if($row==null) {
+				$row=$("<tr>").appendTo($area);
+				$offsetcol=$("<td>").addClass("raw_offsetcol").appendTo($row);
+				$hexcol=$("<td>").addClass("raw_hexcol").appendTo($row);
+				$textcol=$("<td>").addClass("raw_textcol").appendTo($row);
+				$offsetcol.html(pad(i.toString(16),16,"0"));
+			}
+			var curByte=a[i];
+			$hexcol.html($hexcol.html()+"<span class='raw_byte"+i+"'>"+pad(curByte.toString(16),2,"0")+"</span> ");
+			if(curByte>=0x21 && curByte<=0x7E) { //ANSI printable includes the space
+				$textcol.html($textcol.html()+"<span class='raw_byte"+i+"'>"+String.fromCharCode(curByte)+"</span>");
+			} else {
+				$textcol.html($textcol.html()+"<span class='raw_byte"+i+"'>."+"</span>");
+			}
+			currentByte++;
+			if(currentByte==displaywidth) {
+				currentByte=0;
+				$row=null;
+			}
+		}
+	}).change();
+});
+//Download a binary from server and load it
+function getBinary(path) {
+	conlog("Loading PE image "+path);
+	$.ajax({
+		url:"getfile.php?path="+encodeURIComponent(path),
+		type:"GET",
+		dataType:"binary",
+		responseType:'arraybuffer',
+		processData:false,
+		success:function(ab) {
+			conlog("File loaded, length="+ab.byteLength);
+//			try {
+				loadFile(ab);
+//			} catch(e) {
+//				conlog("Fatal exception: "+e);
+//			}
+		},
+		error:function(xhr,ajaxOptions,thrownError) {
+			conlog("Loading "+path+" failed!");
+			console.log(xhr,ajaxOptions,thrownError);
+		}
+	});
+}
+
+//-->
+</script>
+<script type="text/html" id="content-toolbar-raw-width">
+Width (bytes):
+			<select id="raw_option_width">
+				<option value="4">4</option>
+				<option value="8" selected="selected">8</option>
+				<option value="16">16</option>
+				<option value="24">24</option>
+				<option value="32">32</option>
+				<option value="40">40</option>
+				<option value="48">48</option>
+				<option value="56">56</option>
+				<option value="64">64</option>
+				<option value="128">128</option>
+			</select>
+</script>
+<script type="text/html" id="content-toolbar-raw-encoding">
+			Encoding:
+			<select id="raw_option_encoding">
+				<option value="ANSI" selected="selected">ANSI</option>
+			</select>
+</script>
+ <link rel="stylesheet" type="text/css" href="w2ui-1.4.2.css" />
+<style type="text/css">
+* {
+	margin:0;
+	padding:0;
+}
+html,body {
+	height:100%;
+	width:100%;
+}
+.window {
+	border:1px solid black;
+	display:none;
+	overflow:auto;
+	padding:2px;
+}
+#jdawin .window {
+	display:block;
+	height:100%;
+}
+#raw_content,#asm_content {
+	font-family: 'Courier New', Courier, 'Lucida Sans Typewriter', 'Lucida Typewriter', monospace;
+}
+.raw_offsetcol {
+	padding-right:5px;
+}
+.raw_hexcol {
+	padding:0px 5px;
+}
+.raw_textcol {
+	padding-left:5px;
+}
+.raw_byte_highlight {
+	background-color:lightblue;
+}
+#jdawin {
+	height:100%;
+	width:100%;
+}
+</style>
+</head>
+<body>
+<div id="jdawin">
+</div>
+<div id="asm" class="window">
+	<div id="asm_content" class="window_content">
+		<table>
+			<thead>
+				<tr><th title="Virtual address">VA</th><th title="File address">FA</th><th title="Raw bytes in file/memory">RAW</th><th title="ASM representation">Mnemonic</th><th>Notes/Comment</th></tr>
+			</thead>
+			<tbody>
+			</tbody>
+		</table>
+	</div>
+</div>
+<div id="sections" class="window">
+	<div id="sections_content" class="window_content">
+		<table>
+			<thead>
+				<tr><th>Index</th><th>Name</th><th>Type</th><th title="Virtual address">VA</th><th title="File address">FA</th><th title="Virtual size">VSize</th><th title="Size in file">FSize</th><th>Flags</th><th>Comment</th><th>Action</th></tr>
+			</thead>
+			<tbody>
+			</tbody>
+		</table>
+	</div>
+</div>
+<div id="exports" class="window">
+	<div id="exports_content" class="window_content">	
+		<table>
+			<thead>
+				<tr><th>Ordinal</th><th>RVA</th><th>Export name</th></tr>
+			</thead>
+			<tbody>
+			</tbody>
+		</table>
+	</div>
+</div>
+<div id="imports" class="window">
+	<div id="imports_content" class="window_content">	
+		<table>
+			<thead>
+				<tr><th>Source</th><th>Hint</th><th>Name</th><th>Target RVA</th></tr>
+			</thead>
+			<tbody>
+			</tbody>
+		</table>
+	</div>
+</div>
+<div id="raw" class="window">
+	<div id="raw_content" class="window_content">
+		<table>
+			<thead>
+				<tr><th>Offset</th><th>Hex</th><th>Char</th>
+			</thead>
+			<tbody>
+			</tbody>
+		</table>
+	</div>
+</div>
+<div id="console" class="window">
+	<div id="console_area"><pre></pre></div>
+</div>
+</body>
+</html>

@@ -1,0 +1,415 @@
+<!doctype html>
+<html>
+<head>
+<title>JDA</title>
+<script type="text/javascript" src="jquery-2.1.3.js"></script>
+<script type="text/javascript" src="jquery.binarytransport.js"></script>
+<script type="text/javascript">
+//<!--
+var initialExecutable="proj0000.exe";
+function conlog(msg) {
+	var $con=$("#console_area pre");
+	$con.html($con.html()+msg+"\n");
+	console.log(msg);
+}
+
+var gCPU= {
+	//we're doing WINE-level emulation, so we use 32bit registers internally!
+	//Target: Intel 80486+FPU
+	//Reference https://zsmith.co/intel.html
+	registers: {
+		//GP registers
+		eax:0x0,	//Accumulator
+		ebx:0x0,	//Base
+		ecx:0x0,	//Counter
+		edx:0x0,	//Data
+		//Segment registers
+		cs:0x0,		//Code segment
+		ss:0x0,		//Stack segment
+		ds:0x0,		//Data segment
+		es:0x0,		//Extra segment
+		fs:0x0,
+		gs:0x0,
+		//Pointer registers
+		esi:0x0,	//source index
+		edi:0x0,	//destination index
+		//Stack registers
+		esp:0x0,	//stack pointer
+		ebp:0x0,	//base pointer
+		//Special
+		flags:0x0,	//flags register
+		cr0:0x0,	//Control register 0
+		cr2:0x0,	//Control register 2
+		cr3:0x0,	//Control register 3
+		tr4:0x0,	//Test register 4
+		tr5:0x0,	//Test register 5
+		tr6:0x0,	//Test register 6
+		tr7:0x0,	//Test register 7
+		dr0:0x0,	//Debug register 0
+		dr1:0x0,	//Debug register 1
+		dr2:0x0,	//Debug register 2
+		dr3:0x0,	//Debug register 3
+		dr6:0x0,	//Debug register 6
+		dr7:0x0,	//Debug register 7
+	},
+	//Array containing all running processes
+	processes:[],
+	//Array containing all running threads
+	threads:[],
+	//Run a single instruction at eip of a thread
+	//This function modifies eip to the next instruction for this thread
+	runInstruction:function(thread) {
+	}
+}
+//Process class
+//When called with a cpu argument, the constructor sets up a virtual memory area,
+//maps the EXE file into RAM, sets the CPU registers and creates a main thread with
+//eip=<entry point>
+function Process(cpu,filebuffer) {
+	this.cpu=cpu;
+	this.filebuffer=filebuffer;
+	this.memoryRegions=[];
+	loadAndMapPE(this,filebuffer);
+}
+//Thread class
+function Thread(process) {
+	this.cpu=cpu;
+	
+}
+//memory region
+function MemoryRegion(base,size) {
+	//this.
+}
+//Given a Process object process and an ArrayBuffer object filebuffer,
+//validate that the binary in filebuffer is a valid PE/COFF object,
+//split it into its sections and load these into RAM at specified positions
+function loadAndMapPE(process,filebuffer) {
+	//Step 1: check if the magic bytes 0x5A4D (MZ) are present at 0x00
+	//MZ format: http://wiki.osdev.org/MZ
+	if(filebuffer.byteLength<2)
+		throw "PE file invalid: length < 2";
+	var sigBytes=new Uint8Array(filebuffer,0x00,0x02);
+	if(Uint8ArrayToHexString(sigBytes)!="4D5A")
+		throw "PE file invalid: signature != MZ, is: "+Uint8ArrayToHexString(sigBytes)+")";
+	
+	//Step 2: get the PE header offset from 0x3C-0x3F
+	if(filebuffer.byteLength<0x40)
+		throw "PE file invalid: length < 0x40";
+	var peOffset=new Uint32Array(filebuffer,0x3C,0x01)[0];
+	var peEnd=peOffset+24;
+	conlog("PE header offset: 0x"+peOffset.toString(16));
+	
+	//Step 3: get the PE header itself and parse the first header
+	//PE format: http://wiki.osdev.org/PE
+	if(filebuffer.byteLength<peEnd)
+		throw "PE file invalid: shorter than header";
+	var peHeaderBuf=filebuffer.slice(peOffset,peEnd);
+	var peSigBytes=new Uint8Array(peHeaderBuf,0x00,0x04);
+	if(Uint8ArrayToHexString(peSigBytes)!="50450000")
+		throw "PE file invalid: signature != PE\\0\\0 (is: "+Uint8ArrayToHexString(peSigBytes)+")";
+	var pe_mMachine=pad((new Uint16Array(peHeaderBuf,0x4,1)[0]).toString(16),4,"0").toUpperCase();
+	if(pe_mMachine!="014C") //todo, if this is ever refactored... remove the x86-only limitation. also todo: what is with different endian platforms in JS and Uint32?
+		throw "PE file invalid: machine type != 0x014C, is: "+pe_mMachine;
+	var pe_mNumberOfSections=new Uint16Array(peHeaderBuf,0x6,1)[0];
+	conlog("PE section count: "+pe_mNumberOfSections);
+	var pe_mTimeDateStamp=new Uint32Array(peHeaderBuf,0x8,1)[0];
+	conlog("PE timestamp: "+pe_mTimeDateStamp);
+	var pe_mPointerToSymbolTable=new Uint32Array(peHeaderBuf,0x0C,1)[0];
+	conlog("PE COFF debug symbol table offset: "+(pad(pe_mPointerToSymbolTable.toString(16),8,"0")));
+	var pe_mNumberOfSymbols=new Uint32Array(peHeaderBuf,0x10,1)[0];
+	conlog("PE number of COFF debug symbols: "+(pad(pe_mNumberOfSymbols.toString(16),8,"0")));
+	var pe_mSizeOfOptionalHeader=new Uint16Array(peHeaderBuf,0x14,1)[0];
+	console.log(pe_mSizeOfOptionalHeader);
+	conlog("PE optional header size: "+(pad(pe_mSizeOfOptionalHeader.toString(16),4,"0")));
+	var pe_mCharacteristics=new Uint16Array(peHeaderBuf,0x16,1)[0];
+	var pe_omCharacteristics={
+		IMAGE_FILE_RELOCS_STRIPPED:			(((pe_mCharacteristics)&0x0001)>0?true:false),
+		IMAGE_FILE_EXECUTABLE_IMAGE:		(((pe_mCharacteristics)&0x0002)>0?true:false),
+		IMAGE_FILE_LINE_NUMS_STRIPPED:		(((pe_mCharacteristics)&0x0004)>0?true:false),
+		IMAGE_FILE_LOCAL_SYMS_STRIPPED:		(((pe_mCharacteristics)&0x0008)>0?true:false),
+		IMAGE_FILE_AGGRESSIVE_WS_TRIM:		(((pe_mCharacteristics)&0x0010)>0?true:false),
+		IMAGE_FILE_LARGE_ADDRESS_AWARE:		(((pe_mCharacteristics)&0x0020)>0?true:false),
+		IMAGE_FILE_RESERVED:				(((pe_mCharacteristics)&0x0040)>0?true:false),
+		IMAGE_FILE_BYTES_REVERSED_LO:		(((pe_mCharacteristics)&0x0080)>0?true:false),
+		IMAGE_FILE_32BIT_MACHINE:			(((pe_mCharacteristics)&0x0100)>0?true:false),
+		IMAGE_FILE_DEBUG_STRIPPED:			(((pe_mCharacteristics)&0x0200)>0?true:false),
+		IMAGE_FILE_REMOVABLE_RUN_FROM_SWAP:	(((pe_mCharacteristics)&0x0400)>0?true:false),
+		IMAGE_FILE_NET_RUN_FROM_SWAP:		(((pe_mCharacteristics)&0x0800)>0?true:false),
+		IMAGE_FILE_SYSTEM:					(((pe_mCharacteristics)&0x1000)>0?true:false),
+		IMAGE_FILE_DLL:						(((pe_mCharacteristics)&0x2000)>0?true:false),
+		IMAGE_FILE_UP_SYSTEM_ONLY:			(((pe_mCharacteristics)&0x4000)>0?true:false),
+		IMAGE_FILE_BYTES_REVERSED_HI:		(((pe_mCharacteristics)&0x8000)>0?true:false)
+	}
+	var pe_smCharacteristics="";
+	for(k in pe_omCharacteristics)
+		if(pe_omCharacteristics[k]) pe_smCharacteristics+=k+",";
+	conlog("PE characteristics: "+(pad(pe_mCharacteristics.toString(16),4,"0"))+" ("+pe_smCharacteristics+")");
+	
+	//Step 4: Optional header (if present)
+	//Todo: when factoring this into a generic PE parser, remove the check for presence (obj files dont need it)
+	if(pe_mSizeOfOptionalHeader==0)
+		throw "PE file invalid: no extended header";
+	var pe_extEnd=peEnd+pe_mSizeOfOptionalHeader;
+	if(filebuffer.byteLength<pe_extEnd)
+		throw "PE file invalid: extended header corrupted"
+	conlog("PE extended header, begin "+(pad(peEnd.toString(16),8,"0"))+", end "+(pad(pe_extEnd.toString(16),8,"0")));
+	var peExtBuf=filebuffer.slice(peEnd,pe_extEnd);
+	var peext_mMagic=new Uint16Array(peExtBuf,0x00,1)[0];
+	conlog("PE extended header, magic: "+(pad(peext_mMagic.toString(16),4,"0")));
+	if(peext_mMagic!=0x010b) // && peext_mMagic!=0x020b) //todo: support 64-bit PE32+
+		throw "PE file invalid: extended header has invalid signature"
+	var peext_mMajorLinkerVersion=new Uint8Array(peExtBuf,0x02,1)[0];
+	var peext_mMinorLinkerVersion=new Uint8Array(peExtBuf,0x03,1)[0];
+	conlog("PE extended header, linker version: maj "+(pad(peext_mMajorLinkerVersion.toString(16),2,"0"))+", min "+(pad(peext_mMinorLinkerVersion.toString(16),2,"0")));
+	
+	var peext_mSizeOfCode=new Uint32Array(peExtBuf,0x04,1)[0];
+	conlog("PE extended header, size of code: "+(pad(peext_mSizeOfCode.toString(16),8,"0")));
+	
+	var peext_mSizeOfInitializedData=new Uint32Array(peExtBuf,0x08,1)[0];
+	conlog("PE extended header, size of initialized data: "+(pad(peext_mSizeOfInitializedData.toString(16),8,"0")));
+	
+	var peext_mSizeOfUninitializedData=new Uint32Array(peExtBuf,0x0C,1)[0];
+	conlog("PE extended header, size of uninitialized data: "+(pad(peext_mSizeOfUninitializedData.toString(16),8,"0")));
+	
+	var peext_mAddressOfEntryPoint=new Uint32Array(peExtBuf,0x010,1)[0];
+	conlog("PE extended header, address of entry point: "+(pad(peext_mAddressOfEntryPoint.toString(16),8,"0")));
+	
+	var peext_mBaseOfCode=new Uint32Array(peExtBuf,0x14,1)[0];
+	conlog("PE extended header, base of code: "+(pad(peext_mBaseOfCode.toString(16),8,"0")));
+	
+	var peext_mBaseOfData=new Uint32Array(peExtBuf,0x18,1)[0];
+	conlog("PE extended header, base of data: "+(pad(peext_mBaseOfData.toString(16),8,"0")));
+	
+	var peext_mImageBase=new Uint32Array(peExtBuf,0x1C,1)[0];
+	conlog("PE extended header, image base: "+(pad(peext_mImageBase.toString(16),8,"0")));
+	
+	var peext_mSectionAlignment=new Uint32Array(peExtBuf,0x20,1)[0];
+	conlog("PE extended header, section alignment: "+(pad(peext_mSectionAlignment.toString(16),8,"0")));
+	
+	var peext_mFileAlignment=new Uint32Array(peExtBuf,0x24,1)[0];
+	conlog("PE extended header, file alignment: "+(pad(peext_mFileAlignment.toString(16),8,"0")));
+	
+	var peext_mMajorOperatingSystemVersion=new Uint16Array(peExtBuf,0x28,1)[0];
+	var peext_mMinorOperatingSystemVersion=new Uint16Array(peExtBuf,0x2A,1)[0];
+	conlog("PE extended header, OS version: maj "+(pad(peext_mMajorOperatingSystemVersion.toString(16),4,"0"))+", min "+(pad(peext_mMinorOperatingSystemVersion.toString(16),4,"0")));
+	
+	var peext_mMajorImageVersion=new Uint16Array(peExtBuf,0x2C,1)[0];
+	var peext_mMinorImageVersion=new Uint16Array(peExtBuf,0x2E,1)[0];
+	conlog("PE extended header, image version: "+(pad(peext_mMajorImageVersion.toString(16),4,"0"))+", min "+(pad(peext_mMinorImageVersion.toString(16),4,"0")));
+	
+	var peext_mMajorSubsystemVersion=new Uint16Array(peExtBuf,0x30,1)[0];
+	var peext_mMinorSubsystemVersion=new Uint16Array(peExtBuf,0x32,1)[0];
+	conlog("PE extended header, subsystem version: "+(pad(peext_mMajorSubsystemVersion.toString(16),4,"0"))+", min "+(pad(peext_mMinorSubsystemVersion.toString(16),4,"0")));
+	
+	var peext_mWin32VersionValue=new Uint32Array(peExtBuf,0x34,1)[0];
+	conlog("PE extended header, win32 version: "+(pad(peext_mWin32VersionValue.toString(16),8,"0")));
+	
+	var peext_mSizeOfImage=new Uint32Array(peExtBuf,0x38,1)[0];
+	conlog("PE extended header, size of image: "+(pad(peext_mSizeOfImage.toString(16),8,"0")));
+	
+	var peext_mSizeOfHeaders=new Uint32Array(peExtBuf,0x3C,1)[0];
+	conlog("PE extended header, size of headers: "+(pad(peext_mSizeOfHeaders.toString(16),8,"0")));
+	
+	var peext_mCheckSum=new Uint32Array(peExtBuf,0x40,1)[0];
+	conlog("PE extended header, checksum: "+(pad(peext_mCheckSum.toString(16),8,"0")));
+	
+	var peext_mSubsystem=new Uint16Array(peExtBuf,0x44,1)[0];
+	var peext_smSubsystem="INVALID";
+	switch(peext_mSubsystem) {
+		case 0: peext_smSubsystem="UNKNOWN"; break;
+		case 1: peext_smSubsystem="NATIVE"; break;
+		case 2: peext_smSubsystem="WINDOWS_GUI"; break;
+		case 3: peext_smSubsystem="WINDOWS_CLI"; break;
+		case 7: peext_smSubsystem="POSIX_CLI"; break;
+		case 9: peext_smSubsystem="WINCE_GUI"; break;
+		case 10: peext_smSubsystem="EFI_APP"; break;
+		case 11: peext_smSubsystem="EFI_BOOT_DRIVER"; break;
+		case 12: peext_smSubsystem="EFI_RUNTIME_DRIVER"; break;
+		case 13: peext_smSubsystem="EFI_ROM"; break;
+		case 14: peext_smSubsystem="XBOX"; break;
+		default: peext_smSubsystem="INVALID"; break;
+	}
+	conlog("PE extended header, subsystem: "+(pad(peext_mSubsystem.toString(16),4,"0"))+" ("+peext_smSubsystem+")");
+	
+	var peext_mDllCharacteristics=new Uint16Array(peExtBuf,0x46,1)[0];
+	conlog("PE extended header, DLL characteristics: "+(pad(peext_mDllCharacteristics.toString(16),4,"0")));
+	
+	var peext_mSizeOfStackReserve=new Uint32Array(peExtBuf,0x48,1)[0];
+	conlog("PE extended header, size of stack reserve: "+(pad(peext_mSizeOfStackReserve.toString(16),8,"0")));
+	
+	var peext_mSizeOfStackCommit=new Uint32Array(peExtBuf,0x4C,1)[0];
+	conlog("PE extended header, size of stack commit: "+(pad(peext_mSizeOfStackCommit.toString(16),8,"0")));
+	
+	var peext_mSizeOfHeapReserve=new Uint32Array(peExtBuf,0x50,1)[0];
+	conlog("PE extended header, size of heap reserve: "+(pad(peext_mSizeOfHeapReserve.toString(16),8,"0")));
+	
+	var peext_mSizeOfHeapCommit=new Uint32Array(peExtBuf,0x54,1)[0];
+	conlog("PE extended header, size of heap commit: "+(pad(peext_mSizeOfHeapCommit.toString(16),8,"0")));
+	
+	var peext_mLoaderFlags=new Uint32Array(peExtBuf,0x58,1)[0];
+	conlog("PE extended header, loader flags: "+(pad(peext_mLoaderFlags.toString(16),8,"0")));
+	
+	var peext_mNumberOfRvaAndSizes=new Uint32Array(peExtBuf,0x5C,1)[0];
+	conlog("PE extended header, number of RVA and sizes: "+(pad(peext_mNumberOfRvaAndSizes.toString(16),8,"0")));
+	
+	//Step 5: RVA table directory
+	var rvaBegin=peEnd+0x60;
+	var rvaEnd=rvaBegin+peext_mNumberOfRvaAndSizes*8; //2 DWORDs each
+	if(filebuffer.byteLength<rvaEnd)
+		throw "PE file invalid, RVA table directory corrupted"
+	var rvatables=["export","import","resource","exception","certificate","base_relocation","debug","architecture","globalptr","tls","loadconfig","boundimport","iat","delayimportdescriptor","clrruntime","reserved"];
+	if(peext_mNumberOfRvaAndSizes>rvatables.length)
+		throw "PE file invalid, too many tables in RVA table directory";
+	conlog("PE RVA table directory, begin "+(pad(rvaBegin.toString(16),8,"0"))+", end "+(pad(rvaEnd.toString(16),8,"0")));
+	var rvaBuf=filebuffer.slice(rvaBegin,rvaEnd);
+	var pe_rvaTables=[];
+	for(var i=0;i<peext_mNumberOfRvaAndSizes;i++) {
+		var rva_entry_a=new Uint32Array(rvaBuf,(i*0x8),2);
+		var rva_entry_rva=rva_entry_a[0];
+		var rva_entry_size=rva_entry_a[1];
+		pe_rvaTables.push({
+			index:i,
+			key:rvatables[i],
+			rva:rva_entry_rva,
+			size:rva_entry_size
+		});
+		conlog("PE RVA table directory entry "+rvatables[i]+", RVA "+(pad(rva_entry_rva.toString(16),8,"0"))+", size "+(pad(rva_entry_size.toString(16),8,"0")));
+	}
+	
+	//Step 6: section header block
+	var shBegin=rvaEnd;
+	var shEnd=shBegin+pe_mNumberOfSections*0x28; //sizeof IMAGE_SECTION_HEADER
+	if(filebuffer.byteLength<shEnd)
+		throw "PE file invalid, section table corrupted";
+	var shBuf=filebuffer.slice(shBegin,shEnd);
+	conlog("PE section table, begin "+(pad(shBegin.toString(16),8,"0"))+", end "+(pad(shEnd.toString(16),8,"0")));
+	var pe_sections=[];
+	for(var i=0;i<pe_mNumberOfSections;i++) {
+		var sh_offset=i*0x28;
+		var sh_name=Uint8ArrayToString(new Uint8Array(shBuf,sh_offset+0x00,8));
+		var sh_mVirtualSize=new Uint32Array(shBuf,sh_offset+0x08,1)[0];
+		var sh_mVirtualAddress=new Uint32Array(shBuf,sh_offset+0x0C,1)[0];
+		var sh_mSizeOfRawData=new Uint32Array(shBuf,sh_offset+0x10,1)[0];
+		var sh_mPointerToRawData=new Uint32Array(shBuf,sh_offset+0x14,1)[0];//todo this is wrong in osdev wiki
+		var sh_mPointerToRelocations=new Uint32Array(shBuf,sh_offset+0x18,1)[0];
+		var sh_mPointerToLinenumbers=new Uint32Array(shBuf,sh_offset+0x1C,1)[0];
+		var sh_mNumberOfRelocations=new Uint16Array(shBuf,sh_offset+0x20,1)[0];
+		var sh_mNumberOfLinenumbers=new Uint16Array(shBuf,sh_offset+0x22,1)[0];
+		var sh_mCharacteristics=new Uint32Array(shBuf,sh_offset+0x24,1)[0];
+		conlog("PE section table entry "+i+", name "+sh_name+", virtual size "+(pad(sh_mVirtualSize.toString(16),8,"0"))+", virtual address "+(pad(sh_mVirtualAddress.toString(16),8,"0"))+", raw data size "+(pad(sh_mSizeOfRawData.toString(16),8,"0"))+", pointer to raw data "+(pad(sh_mPointerToRawData.toString(16),8,"0"))+", pointer to relocations "+(pad(sh_mPointerToRelocations.toString(16),8,"0"))+", pointer to line numbers "+(pad(sh_mPointerToLinenumbers.toString(16),8,"0"))+", number of relocations "+(pad(sh_mNumberOfRelocations.toString(16),4,"0"))+", number of line numbers "+(pad(sh_mNumberOfLinenumbers.toString(16),8,"0"))+", characteristics "+(pad(sh_mCharacteristics.toString(16),8,"0")));
+		pe_sections.push({
+			index:i,
+			name:sh_name,
+			mVirtualSize:sh_mVirtualSize,
+			mVirtualAddress:sh_mVirtualAddress,
+			mSizeOfRawData:sh_mSizeOfRawData,
+			mPointerToRawData:sh_mPointerToRawData,
+			mPointerToRelocations:sh_mPointerToRelocations,
+			mPointerToLinenumbers:sh_mPointerToLinenumbers,
+			mNumberOfRelocations:sh_mNumberOfRelocations,
+			mNumberOfLinenumbers:sh_mNumberOfLinenumbers,
+			mCharacteristics:sh_mCharacteristics
+		});
+	}
+	
+	//Step 7: Order the sections by raw address ascending
+	//According to PE/COFF spec, this should be the case already
+	//but we need to sort so that we can find out if there's a gap
+	//which can be used to store data (steganography? RTTI info?)
+	
+}
+
+function Uint8ArrayToString(a) { //C strings, we terminate upon 0
+	var ret="";
+	for(var i=0;i<a.length;i++) {
+		if(a[i]==0)
+			break;
+		ret+=String.fromCharCode(a[i]);
+	}
+	return ret;
+}
+
+//run an executable
+function runEXE(filebuffer,argv) {
+	var cpu=gCPU;
+	var p=new Process(gCPU,filebuffer);
+	
+}
+//http://stackoverflow.com/a/10073788/1933738
+function pad(n, width, z) {
+  z = z || '0';
+  n = n + '';
+  return n.length >= width ? n : new Array(width - n.length + 1).join(z) + n;
+}
+function Uint8ArrayToHexString(a) {
+	var ret="";
+	for(var i=0;i<a.length;i++)
+		ret+=pad(a[i].toString(16),2,"0");
+	return ret.toUpperCase();
+}
+$(document).ready(function() {
+	conlog("Initializing JDA");
+	conlog("Loading initial PE image "+initialExecutable+" into RAM");
+	$.ajax({
+		url:"getfile.php?path="+encodeURIComponent(initialExecutable),
+		type:"GET",
+		dataType:"binary",
+		responseType:'arraybuffer',
+		processData:false,
+		success:function(ab) {
+			conlog("File loaded, length="+ab.byteLength);
+//			try {
+				runEXE(ab,[]);
+//			} catch(e) {
+//				conlog("Fatal exception: "+e);
+//			}
+		},
+		error:function(xhr,ajaxOptions,thrownError) {
+			conlog("Loading "+initialExecutable+" failed!");
+			console.log(xhr,ajaxOptions,thrownError);
+		}
+	});
+});
+//-->
+</script>
+<style type="text/css">
+#framebuffer canvas {
+width:640px;
+height:480px;
+border:1px solid black;
+}
+</style>
+</head>
+<body>
+<!--
+<div id="framebuffer">
+<canvas></canvas>
+</div>
+<div id="console">
+	<div id="console_head" class="window_head">
+		<span class="window_head_title">Debugger console</span>
+	</div>
+	<div id="console_area"><pre></pre></div>
+</div>
+-->
+<div id="mem_inspector">
+	<div id="mem_inspector_head" class="window_head">
+		<span class="window_head_title">RAM inspector</span>
+	</div>
+	<div id="mem_inspector_content">
+		<table>
+			<thead>
+				<tr><th>VA</th><th>FA</th><th>RAW</th><th>Mnemonic</th><th>Notes/Comment</th></tr>
+			</thead>
+			<tbody>
+			</tbody>
+		</table>
+	</div>
+</div>
+<div id="cpu_inspector">
+	<div id="cpu_inspector_head" class="window_head">
+		<span class="window_head_title">CPU register inspector</span>
+	</div>
+</div>
+</body>
+</html>
