@@ -173,7 +173,7 @@ function showExportsView() {
 	appstate.binary.exports.forEach(function(e) {
 		var $row=$("<tr>").appendTo($container);
 		$("<td>").appendTo($row).html(e.ordinal);
-		$("<td>").appendTo($row).html(pad(e.rva.toString(16),8,"0"));
+		$("<td>").appendTo($row).html(toHex(e.rva,4));
 		$("<td>").appendTo($row).html(e.name);
 	});
 }
@@ -184,9 +184,9 @@ function showImportsView() {
 		e.imports.forEach(function(e2) {
 			var $row=$("<tr>").appendTo($container);
 			$("<td>").appendTo($row).html(e.name);
-			$("<td>").appendTo($row).html(pad(e2.hint.toString(16),4,"0"));
+			$("<td>").appendTo($row).html(toHex(e2.hint,2));
 			$("<td>").appendTo($row).html(e2.name);
-			$("<td>").appendTo($row).html(pad(e2.rva.toString(16),8,"0"));
+			$("<td>").appendTo($row).html(toHex(e2.rva,4));
 		});
 	});
 }
@@ -197,10 +197,10 @@ function showSectionView() {
 		$("<td>").appendTo($row).html(i);
 		$("<td>").appendTo($row).html(e.name);
 		$("<td>").appendTo($row).html((e.type==1)?"physical":"virtual");
-		$("<td>").appendTo($row).html((e.type==1)?(pad(e.va.toString(16),8,"0")):"&nbsp;");
-		$("<td>").appendTo($row).html(pad(e.fa.toString(16),8,"0"));
-		$("<td>").appendTo($row).html((e.type==1)?(pad(e.vsize.toString(16),8,"0")):"&nbsp;");
-		$("<td>").appendTo($row).html(pad(e.fsize.toString(16),8,"0"));
+		$("<td>").appendTo($row).html((e.type==1)?(toHex(e.va,4)):"&nbsp;");
+		$("<td>").appendTo($row).html(toHex(e.fa,4));
+		$("<td>").appendTo($row).html((e.type==1)?(toHex(e.vsize,4)):"&nbsp;");
+		$("<td>").appendTo($row).html(toHex(e.fsize,4));
 		$("<td>").appendTo($row);
 		$("<td>").appendTo($row).html(e.comment);
 		var $actioncol=$("<td>").appendTo($row);
@@ -239,10 +239,10 @@ $(document).ready(function() {
 				$offsetcol=$("<td>").addClass("raw_offsetcol").appendTo($row);
 				$hexcol=$("<td>").addClass("raw_hexcol").appendTo($row);
 				$textcol=$("<td>").addClass("raw_textcol").appendTo($row);
-				$offsetcol.html(pad(i.toString(16),16,"0"));
+				$offsetcol.html(toHex(i,4));
 			}
 			var curByte=a[i];
-			$hexcol.html($hexcol.html()+"<span class='raw_byte"+i+"'>"+pad(curByte.toString(16),2,"0")+"</span> ");
+			$hexcol.html($hexcol.html()+"<span class='raw_byte"+i+"'>"+toHex(curByte,1)+"</span> ");
 			if(curByte>=0x21 && curByte<=0x7E) { //ANSI printable includes the space
 				$textcol.html($textcol.html()+"<span class='raw_byte"+i+"'>"+String.fromCharCode(curByte)+"</span>");
 			} else {
