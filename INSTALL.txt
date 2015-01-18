@@ -1,0 +1,12 @@
+Installation is easy: copy all the files into a password-protected
+directory on a webserver with PHP installed.
+
+Do not forget the password protection, as getfile.php is essentially
+a remote file disclosure backdoor. It will be removed entirely at some
+point in the future, but for now it is still needed.
+
+Place your target file in the root and replace proj0000.exe with it.
+
+Opening the index.html file will for now start and disassemble proj0000.exe
+but this will be turned into a "real" file open dialog soon enough. I'm
+just too lazy to click every time I press F5.
