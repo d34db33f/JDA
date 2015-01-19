@@ -24,30 +24,32 @@ function PECOFF32Binary(filebuffer) {
 	if(this.filebuffer.byteLength<this.peEnd)
 		throw "PE file invalid: shorter than header";
 	this.peHeaderBuf=this.filebuffer.slice(this.peOffset,this.peEnd);
+	this.peHeaderView=new DataView(this.peHeaderBuf);
+	
 	this.peSigBytes=new Uint8Array(this.peHeaderBuf,0x00,0x04);
 	if(Uint8ArrayToHexString(this.peSigBytes)!="50450000")
 		throw "PE file invalid: signature != PE\\0\\0 (is: "+Uint8ArrayToHexString(this.peSigBytes)+")";
 	
-	this.pe_mMachine=toHex(new Uint16Array(this.peHeaderBuf,0x4,1)[0],2).toUpperCase();
+	this.pe_mMachine=toHex(this.peHeaderView.getUint16(0x4,true),2).toUpperCase();
 	if(this.pe_mMachine!="014C") //todo, if this is ever refactored... remove the x86-only limitation. also todo: what is with different endian platforms in JS and Uint32?
 		throw "PE file invalid: machine type != 0x014C, is: "+this.pe_mMachine;
 	
-	this.pe_mNumberOfSections=new Uint16Array(this.peHeaderBuf,0x6,1)[0];
+	this.pe_mNumberOfSections=this.peHeaderView.getUint16(0x6,true);
 	conlog("PE section count: "+toHex(this.pe_mNumberOfSections,2));
 	
-	this.pe_mTimeDateStamp=new Uint32Array(this.peHeaderBuf,0x8,1)[0];
+	this.pe_mTimeDateStamp=this.peHeaderView.getUint32(0x8,true);
 	conlog("PE timestamp: "+toHex(this.pe_mTimeDateStamp,4));
 	
-	this.pe_mPointerToSymbolTable=new Uint32Array(this.peHeaderBuf,0x0C,1)[0];
+	this.pe_mPointerToSymbolTable=this.peHeaderView.getUint32(0x0C,true);
 	conlog("PE COFF debug symbol table offset: "+toHex(this.pe_mPointerToSymbolTable,4));
 	
-	this.pe_mNumberOfSymbols=new Uint32Array(this.peHeaderBuf,0x10,1)[0];
+	this.pe_mNumberOfSymbols=this.peHeaderView.getUint32(0x10,true);
 	conlog("PE number of COFF debug symbols: "+toHex(this.pe_mNumberOfSymbols,4));
 	
-	this.pe_mSizeOfOptionalHeader=new Uint16Array(this.peHeaderBuf,0x14,1)[0];
-	conlog("PE optional header size: "+toHex(this.pe_mSizeOfOptionalHeader,4));
+	this.pe_mSizeOfOptionalHeader=this.peHeaderView.getUint16(0x14,true);
+	conlog("PE optional header size: "+toHex(this.pe_mSizeOfOptionalHeader,2));
 	
-	this.pe_mCharacteristics=new Uint16Array(this.peHeaderBuf,0x16,1)[0];
+	this.pe_mCharacteristics=this.peHeaderView.getUint16(0x16,true);
 	this.pe_omCharacteristics={
 		IMAGE_FILE_RELOCS_STRIPPED:			(((this.pe_mCharacteristics)&0x0001)>0?true:false),
 		IMAGE_FILE_EXECUTABLE_IMAGE:		(((this.pe_mCharacteristics)&0x0002)>0?true:false),
@@ -81,67 +83,68 @@ function PECOFF32Binary(filebuffer) {
 	conlog("PE extended header, begin "+toHex(this.peEnd,4)+", end "+toHex(this.pe_extEnd,4));
 	
 	this.peExtBuf=this.filebuffer.slice(this.peEnd,this.pe_extEnd);
-	this.peext_mMagic=new Uint16Array(this.peExtBuf,0x00,1)[0];
+	this.peExtView=new DataView(this.peExtBuf);
+	this.peext_mMagic=this.peExtView.getUint16(0x00,true);
 	conlog("PE extended header, magic: "+toHex(this.peext_mMagic,4));
 	
 	if(this.peext_mMagic!=0x010b) // && this.peext_mMagic!=0x020b) //todo: support 64-bit PE32+
 		throw "PE file invalid: extended header has invalid signature"
-	this.peext_mMajorLinkerVersion=new Uint8Array(this.peExtBuf,0x02,1)[0];
-	this.peext_mMinorLinkerVersion=new Uint8Array(this.peExtBuf,0x03,1)[0];
+	this.peext_mMajorLinkerVersion=this.peExtView.getUint8(0x02);
+	this.peext_mMinorLinkerVersion=this.peExtView.getUint8(0x03);
 	conlog("PE extended header, linker version: maj "+toHex(this.peext_mMajorLinkerVersion,1)+", min "+toHex(this.peext_mMinorLinkerVersion,1));
 	
-	this.peext_mSizeOfCode=new Uint32Array(this.peExtBuf,0x04,1)[0];
+	this.peext_mSizeOfCode=this.peExtView.getUint32(0x04,true);
 	conlog("PE extended header, size of code: "+toHex(this.peext_mSizeOfCode,4));
 	
-	this.peext_mSizeOfInitializedData=new Uint32Array(this.peExtBuf,0x08,1)[0];
+	this.peext_mSizeOfInitializedData=this.peExtView.getUint32(0x08,true);
 	conlog("PE extended header, size of initialized data: "+toHex(this.peext_mSizeOfInitializedData,4));
 	
-	this.peext_mSizeOfUninitializedData=new Uint32Array(this.peExtBuf,0x0C,1)[0];
+	this.peext_mSizeOfUninitializedData=this.peExtView.getUint32(0x0C,true);
 	conlog("PE extended header, size of uninitialized data: "+toHex(this.peext_mSizeOfUninitializedData,4));
 	
-	this.peext_mAddressOfEntryPoint=new Uint32Array(this.peExtBuf,0x010,1)[0];
+	this.peext_mAddressOfEntryPoint=this.peExtView.getUint32(0x010,true);
 	conlog("PE extended header, address of entry point: "+toHex(this.peext_mAddressOfEntryPoint,4));
 	
-	this.peext_mBaseOfCode=new Uint32Array(this.peExtBuf,0x14,1)[0];
+	this.peext_mBaseOfCode=this.peExtView.getUint32(0x14,true);
 	conlog("PE extended header, base of code: "+toHex(this.peext_mBaseOfCode,4));
 	
-	this.peext_mBaseOfData=new Uint32Array(this.peExtBuf,0x18,1)[0];
+	this.peext_mBaseOfData=this.peExtView.getUint32(0x18,true);
 	conlog("PE extended header, base of data: "+toHex(this.peext_mBaseOfData,4));
 	
-	this.peext_mImageBase=new Uint32Array(this.peExtBuf,0x1C,1)[0];
+	this.peext_mImageBase=this.peExtView.getUint32(0x1C,true);
 	conlog("PE extended header, image base: "+toHex(this.peext_mImageBase,4));
 	
-	this.peext_mSectionAlignment=new Uint32Array(this.peExtBuf,0x20,1)[0];
+	this.peext_mSectionAlignment=this.peExtView.getUint32(0x20,true);
 	conlog("PE extended header, section alignment: "+toHex(this.peext_mSectionAlignment,4));
 	
-	this.peext_mFileAlignment=new Uint32Array(this.peExtBuf,0x24,1)[0];
+	this.peext_mFileAlignment=this.peExtView.getUint32(0x24,true);
 	conlog("PE extended header, file alignment: "+toHex(this.peext_mFileAlignment,4));
 	
-	this.peext_mMajorOperatingSystemVersion=new Uint16Array(this.peExtBuf,0x28,1)[0];
-	this.peext_mMinorOperatingSystemVersion=new Uint16Array(this.peExtBuf,0x2A,1)[0];
-	conlog("PE extended header, OS version: maj "+toHex(this.peext_mMajorOperatingSystemVersion.toString(16),4,"0"))+", min "+(pad(this.peext_mMinorOperatingSystemVersion,2));
+	this.peext_mMajorOperatingSystemVersion=this.peExtView.getUint16(0x28,true);
+	this.peext_mMinorOperatingSystemVersion=this.peExtView.getUint16(0x2A,true);
+	conlog("PE extended header, OS version: maj "+toHex(this.peext_mMajorOperatingSystemVersion,2)+", min "+toHex(this.peext_mMinorOperatingSystemVersion,2));
 	
-	this.peext_mMajorImageVersion=new Uint16Array(this.peExtBuf,0x2C,1)[0];
-	this.peext_mMinorImageVersion=new Uint16Array(this.peExtBuf,0x2E,1)[0];
-	conlog("PE extended header, image version: "+toHex(this.peext_mMajorImageVersion.toString(16),4,"0"))+", min "+(pad(this.peext_mMinorImageVersion,2));
+	this.peext_mMajorImageVersion=this.peExtView.getUint16(0x2C,true);
+	this.peext_mMinorImageVersion=this.peExtView.getUint16(0x2E,true);
+	conlog("PE extended header, image version: "+toHex(this.peext_mMajorImageVersion,2)+", min "+toHex(this.peext_mMinorImageVersion,2));
 	
-	this.peext_mMajorSubsystemVersion=new Uint16Array(this.peExtBuf,0x30,1)[0];
-	this.peext_mMinorSubsystemVersion=new Uint16Array(this.peExtBuf,0x32,1)[0];
-	conlog("PE extended header, subsystem version: "+toHex(this.peext_mMajorSubsystemVersion.toString(16),4,"0"))+", min "+(pad(this.peext_mMinorSubsystemVersion,2));
+	this.peext_mMajorSubsystemVersion=this.peExtView.getUint16(0x30,true);
+	this.peext_mMinorSubsystemVersion=this.peExtView.getUint16(0x32,true);
+	conlog("PE extended header, subsystem version: "+toHex(this.peext_mMajorSubsystemVersion,2)+", min "+toHex(this.peext_mMinorSubsystemVersion,2));
 	
-	this.peext_mWin32VersionValue=new Uint32Array(this.peExtBuf,0x34,1)[0];
+	this.peext_mWin32VersionValue=this.peExtView.getUint32(0x34,true);
 	conlog("PE extended header, win32 version: "+toHex(this.peext_mWin32VersionValue,4));
 	
-	this.peext_mSizeOfImage=new Uint32Array(this.peExtBuf,0x38,1)[0];
+	this.peext_mSizeOfImage=this.peExtView.getUint32(0x38,true);
 	conlog("PE extended header, size of image: "+toHex(this.peext_mSizeOfImage,4));
 	
-	this.peext_mSizeOfHeaders=new Uint32Array(this.peExtBuf,0x3C,1)[0];
+	this.peext_mSizeOfHeaders=this.peExtView.getUint32(0x3C,true);
 	conlog("PE extended header, size of headers: "+toHex(this.peext_mSizeOfHeaders,4));
 	
-	this.peext_mCheckSum=new Uint32Array(this.peExtBuf,0x40,1)[0];
+	this.peext_mCheckSum=this.peExtView.getUint32(0x40,true);
 	conlog("PE extended header, checksum: "+toHex(this.peext_mCheckSum,4));
 	
-	this.peext_mSubsystem=new Uint16Array(this.peExtBuf,0x44,1)[0];
+	this.peext_mSubsystem=this.peExtView.getUint16(0x44,true);
 	this.peext_smSubsystem="INVALID";
 	switch(this.peext_mSubsystem) {
 		case 0: this.peext_smSubsystem="UNKNOWN"; break;
@@ -159,25 +162,25 @@ function PECOFF32Binary(filebuffer) {
 	}
 	conlog("PE extended header, subsystem: "+toHex(this.peext_mSubsystem,2)+" ("+this.peext_smSubsystem+")");
 	
-	this.peext_mDllCharacteristics=new Uint16Array(this.peExtBuf,0x46,1)[0];
+	this.peext_mDllCharacteristics=this.peExtView.getUint16(0x46,true);
 	conlog("PE extended header, DLL characteristics: "+toHex(this.peext_mDllCharacteristics,2));
 	
-	this.peext_mSizeOfStackReserve=new Uint32Array(this.peExtBuf,0x48,1)[0];
+	this.peext_mSizeOfStackReserve=this.peExtView.getUint32(0x48,true);
 	conlog("PE extended header, size of stack reserve: "+toHex(this.peext_mSizeOfStackReserve,4));
 	
-	this.peext_mSizeOfStackCommit=new Uint32Array(this.peExtBuf,0x4C,1)[0];
+	this.peext_mSizeOfStackCommit=this.peExtView.getUint32(0x4C,true);
 	conlog("PE extended header, size of stack commit: "+toHex(this.peext_mSizeOfStackCommit,4));
 	
-	this.peext_mSizeOfHeapReserve=new Uint32Array(this.peExtBuf,0x50,1)[0];
+	this.peext_mSizeOfHeapReserve=this.peExtView.getUint32(0x50,true);
 	conlog("PE extended header, size of heap reserve: "+toHex(this.peext_mSizeOfHeapReserve,4));
 	
-	this.peext_mSizeOfHeapCommit=new Uint32Array(this.peExtBuf,0x54,1)[0];
+	this.peext_mSizeOfHeapCommit=this.peExtView.getUint32(0x54,true);
 	conlog("PE extended header, size of heap commit: "+toHex(this.peext_mSizeOfHeapCommit,4));
 	
-	this.peext_mLoaderFlags=new Uint32Array(this.peExtBuf,0x58,1)[0];
+	this.peext_mLoaderFlags=this.peExtView.getUint32(0x58,true);
 	conlog("PE extended header, loader flags: "+toHex(this.peext_mLoaderFlags,4));
 	
-	this.peext_mNumberOfRvaAndSizes=new Uint32Array(this.peExtBuf,0x5C,1)[0];
+	this.peext_mNumberOfRvaAndSizes=this.peExtView.getUint32(0x5C,true);
 	conlog("PE extended header, number of RVA and sizes: "+toHex(this.peext_mNumberOfRvaAndSizes,4));
 	
 	//Step 5: RVA table directory
@@ -188,8 +191,9 @@ function PECOFF32Binary(filebuffer) {
 	this.rvatables=["export","import","resource","exception","certificate","base_relocation","debug","architecture","globalptr","tls","loadconfig","boundimport","iat","delayimportdescriptor","clrruntime","reserved"];
 	if(this.peext_mNumberOfRvaAndSizes>this.rvatables.length)
 		throw "PE file invalid, too many tables in RVA table directory";
-	conlog("PE RVA table directory, begin "+toHex(this.rvaBegin.toString(16),8,"0"))+", end "+(pad(this.rvaEnd,4));
+	conlog("PE RVA table directory, begin "+toHex(this.rvaBegin,4)+", end "+toHex(this.rvaEnd,4));
 	this.rvaBuf=this.filebuffer.slice(this.rvaBegin,this.rvaEnd);
+	
 	this.pe_rvaTables=[];
 	for(var i=0;i<this.peext_mNumberOfRvaAndSizes;i++) {
 		var rva_entry_a=new Uint32Array(this.rvaBuf,(i*0x8),2);
@@ -201,7 +205,7 @@ function PECOFF32Binary(filebuffer) {
 			rva:rva_entry_rva,
 			size:rva_entry_size
 		});
-		conlog("PE RVA table directory entry "+this.rvatables[i]+", RVA "+toHex(rva_entry_rva.toString(16),8,"0"))+", size "+(pad(rva_entry_size,4));
+		conlog("PE RVA table directory entry "+this.rvatables[i]+", RVA "+toHex(rva_entry_rva,4)+", size "+toHex(rva_entry_size,4));
 	}
 	
 	//Step 6: section header block
@@ -210,20 +214,22 @@ function PECOFF32Binary(filebuffer) {
 	if(this.filebuffer.byteLength<this.shEnd)
 		throw "PE file invalid, section table corrupted";
 	this.shBuf=this.filebuffer.slice(this.shBegin,this.shEnd);
-	conlog("PE section table, begin "+toHex(this.shBegin.toString(16),8,"0"))+", end "+(pad(this.shEnd,4));
+	this.shView=new DataView(this.shBuf);
+	conlog("PE section table, begin "+toHex(this.shBegin,4)+", end "+toHex(this.shEnd,4));
+	
 	this.pe_sections=[];
 	for(var i=0;i<this.pe_mNumberOfSections;i++) {
 		var sh_offset=i*0x28;
 		var sh_name=Uint8ArrayToString(new Uint8Array(this.shBuf,sh_offset+0x00,8));
-		var sh_mVirtualSize=new Uint32Array(this.shBuf,sh_offset+0x08,1)[0];
-		var sh_mVirtualAddress=new Uint32Array(this.shBuf,sh_offset+0x0C,1)[0];
-		var sh_mSizeOfRawData=new Uint32Array(this.shBuf,sh_offset+0x10,1)[0];
-		var sh_mPointerToRawData=new Uint32Array(this.shBuf,sh_offset+0x14,1)[0];//todo this is wrong in osdev wiki
-		var sh_mPointerToRelocations=new Uint32Array(this.shBuf,sh_offset+0x18,1)[0];
-		var sh_mPointerToLinenumbers=new Uint32Array(this.shBuf,sh_offset+0x1C,1)[0];
-		var sh_mNumberOfRelocations=new Uint16Array(this.shBuf,sh_offset+0x20,1)[0];
-		var sh_mNumberOfLinenumbers=new Uint16Array(this.shBuf,sh_offset+0x22,1)[0];
-		var sh_mCharacteristics=new Uint32Array(this.shBuf,sh_offset+0x24,1)[0];
+		var sh_mVirtualSize=this.shView.getUint32(sh_offset+0x08,true);
+		var sh_mVirtualAddress=this.shView.getUint32(sh_offset+0x0C,true);
+		var sh_mSizeOfRawData=this.shView.getUint32(sh_offset+0x10,true);
+		var sh_mPointerToRawData=this.shView.getUint32(sh_offset+0x14,true);//todo this is wrong in osdev wiki
+		var sh_mPointerToRelocations=this.shView.getUint32(sh_offset+0x18,true);
+		var sh_mPointerToLinenumbers=this.shView.getUint32(sh_offset+0x1C,true);
+		var sh_mNumberOfRelocations=this.shView.getUint16(sh_offset+0x20,true);
+		var sh_mNumberOfLinenumbers=this.shView.getUint16(sh_offset+0x22,true);
+		var sh_mCharacteristics=this.shView.getUint32(sh_offset+0x24,true);
 		conlog("PE section table entry "+i+", name "+sh_name+", virtual size "+toHex(sh_mVirtualSize,4)+", virtual address "+toHex(sh_mVirtualAddress,4)+", raw data size "+toHex(sh_mSizeOfRawData,4)+", pointer to raw data "+toHex(sh_mPointerToRawData,4)+", pointer to relocations "+toHex(sh_mPointerToRelocations,4)+", pointer to line numbers "+toHex(sh_mPointerToLinenumbers,4)+", number of relocations "+toHex(sh_mNumberOfRelocations,2)+", number of line numbers "+toHex(sh_mNumberOfLinenumbers,2)+", characteristics "+toHex(sh_mCharacteristics,4));
 		this.pe_sections.push({
 			index:i,
@@ -265,7 +271,7 @@ function PECOFF32Binary(filebuffer) {
 		comment:"PE file header. Always mapped to image base"
 	});
 	if(this.pe_sections[1].mPointerToRawData!=this.shEnd) {
-		conlog("Gap in PE file: "+pad((this.pe_sections[1].mPointerToRawData-this.shEnd).toString(16),8,"0")+" bytes missing - section block ends at "+pad(this.shEnd.toString(16),8,"0")+", first section begins at "+pad(this.pe_sections[1].mPointerToRawData.toString(16),8,"0"));
+		conlog("Gap in PE file: "+toHex(this.pe_sections[1].mPointerToRawData-this.shEnd,4)+" bytes missing - section block ends at "+toHex(this.shEnd,4)+", first section begins at "+toHex(this.pe_sections[1].mPointerToRawData,4));
 		//Insert a "virtual" section, we have to account for each byte in the binary in the resulting assembly
 		this.pe_sections.unshift({
 			index:-1,
@@ -289,7 +295,7 @@ function PECOFF32Binary(filebuffer) {
 		else if(a.mPointerToRawData>b.mPointerToRawData)
 			return 1;
 		else //it may be that this is actually valid, no idea
-			throw "PE file invalid: sections "+a.index+" ("+a.name+") and "+b.index+" ("+b.name+") have same raw offset "+pad(a.mPointerToRawData.toString(16),8,"0");
+			throw "PE file invalid: sections "+a.index+" ("+a.name+") and "+b.index+" ("+b.name+") have same raw offset "+toHex(a.mPointerToRawData,4);
 	});
 	//Todo: implement insertion of gaps BETWEEN sections
 	//There's just too many places to hide stuff in for viruses...
@@ -316,40 +322,42 @@ function PECOFF32Binary(filebuffer) {
 			this.edata_vbegin=this.pe_sections[found].mVirtualAddress;
 			this.edata_vend=this.edata_vbegin+this.pe_sections[found].mVirtualSize;
 			
-			conlog("PE edata section at #"+found+", begin at "+pad(this.edata_begin.toString(16),8,"0")+", end at "+pad(this.edata_end.toString(16),8,"0")+", virtual begin at "+pad(this.edata_vbegin.toString(16),8,"0")+", end at "+pad(this.edata_vend.toString(16),8,"0"));
+			conlog("PE edata section at #"+found+", begin at "+toHex(this.edata_begin,4)+", end at "+toHex(this.edata_end,4)+", virtual begin at "+toHex(this.edata_vbegin,4)+", end at "+toHex(this.edata_vend,4));
 			this.edata_buf=this.filebuffer.slice(this.edata_begin,this.edata_end);
+			this.edata_view=new DataView(this.edata_buf);
 			
 			this.edata_edtbuf=this.edata_buf.slice(0,0x28);
+			this.edata_edtview=new DataView(this.edata_edtbuf);
 			
-			this.edata_edt_exportflags=new Uint32Array(this.edata_edtbuf,0x00,1)[0];
+			this.edata_edt_exportflags=this.edata_edtview.getUint32(0x00,true);
 			conlog("PE edata section, export directory table: exportflags "+toHex(this.edata_edt_exportflags,4));
 			
-			this.edata_edt_timestamp=new Uint32Array(this.edata_edtbuf,0x04,1)[0];
+			this.edata_edt_timestamp=this.edata_edtview.getUint32(0x04,true);
 			conlog("PE edata section, export directory table: timestamp "+toHex(this.edata_edt_timestamp,4));
 			
-			this.edata_edt_majver=new Uint16Array(this.edata_edtbuf,0x08,1)[0];
-			this.edata_edt_minver=new Uint16Array(this.edata_edtbuf,0x0A,1)[0];
+			this.edata_edt_majver=this.edata_edtview.getUint16(0x08,true);
+			this.edata_edt_minver=this.edata_edtview.getUint16(0x0A,true);
 			conlog("PE edata section, export directory table: version maj "+toHex(this.edata_edt_majver,2)+", min "+toHex(this.edata_edt_minver,2));
 			
-			this.edata_edt_namerva=new Uint32Array(this.edata_edtbuf,0x0C,1)[0];
+			this.edata_edt_namerva=this.edata_edtview.getUint32(0x0C,true);
 			conlog("PE edata section, export directory table: Name RVA "+toHex(this.edata_edt_namerva,4));
 			
-			this.edata_edt_ordinalbase=new Uint32Array(this.edata_edtbuf,0x10,1)[0];
+			this.edata_edt_ordinalbase=this.edata_edtview.getUint32(0x10,true);
 			conlog("PE edata section, export directory table: Ordinal base "+toHex(this.edata_edt_ordinalbase,4));
 			
-			this.edata_edt_eatentries=new Uint32Array(this.edata_edtbuf,0x14,1)[0];
+			this.edata_edt_eatentries=this.edata_edtview.getUint32(0x14,true);
 			conlog("PE edata section, export directory table: EAT entries "+toHex(this.edata_edt_eatentries,4));
 			
-			this.edata_edt_numnamepointers=new Uint32Array(this.edata_edtbuf,0x18,1)[0];
+			this.edata_edt_numnamepointers=this.edata_edtview.getUint32(0x18,true);
 			conlog("PE edata section, export directory table: Number of name pointers "+toHex(this.edata_edt_numnamepointers,4));
 			
-			this.edata_edt_eatrva=new Uint32Array(this.edata_edtbuf,0x1C,1)[0];
+			this.edata_edt_eatrva=this.edata_edtview.getUint32(0x1C,true);
 			conlog("PE edata section, export directory table: EAT RVA "+toHex(this.edata_edt_eatrva,4));
 			
-			this.edata_edt_nprva=new Uint32Array(this.edata_edtbuf,0x20,1)[0];
+			this.edata_edt_nprva=this.edata_edtview.getUint32(0x20,true);
 			conlog("PE edata section, export directory table: Name pointer RVA "+toHex(this.edata_edt_nprva,4));
 			
-			this.edata_edt_otrva=new Uint32Array(this.edata_edtbuf,0x24,1)[0];
+			this.edata_edt_otrva=this.edata_edtview.getUint32(0x24,true);
 			conlog("PE edata section, export directory table: Ordinal Table RVA "+toHex(this.edata_edt_otrva,4));
 			
 			//For reasons unknown, the RVA values may also target into another section. Interesting to check if other PE analyzers get thrown off by such a binary
@@ -452,7 +460,7 @@ function PECOFF32Binary(filebuffer) {
 			this.idata_vbegin=this.pe_sections[found].mVirtualAddress;
 			this.idata_vend=this.idata_vbegin+this.pe_sections[found].mVirtualSize;
 			
-			conlog("PE idata section at #"+found+", begin at "+pad(this.idata_begin.toString(16),8,"0")+", end at "+pad(this.idata_end.toString(16),8,"0")+", virtual begin at "+pad(this.idata_vbegin.toString(16),8,"0")+", end at "+pad(this.idata_vend.toString(16),8,"0"));
+			conlog("PE idata section at #"+found+", begin at "+toHex(this.idata_begin,4)+", end at "+toHex(this.idata_end,4)+", virtual begin at "+toHex(this.idata_vbegin,4)+", end at "+toHex(this.idata_vend,4));
 			this.idata_buf=this.filebuffer.slice(this.idata_begin,this.idata_end);
 			
 			//Parse IDT (Import Directory Table)
